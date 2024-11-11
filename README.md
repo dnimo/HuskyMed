@@ -3,7 +3,7 @@
 This project is created to practice the auto-summarization from Clinical Notes based on KuoCh'ing's master thesis
 project.
 The data resources are from Kyoto University Hospital, and the project is supervised by Prof. Tomohiro Kuroda.
-We sort of 10 years of clinical notes from the hospital, and the data is preprocessed by the hospital's staff.
+We are sort of 10 years of clinical notes from the hospital, and the data is preprocessed by the hospital's staff.
 
 It is related to the following conference presentation:
 

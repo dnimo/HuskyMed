@@ -42,7 +42,7 @@ class NBCEModelWrapper:
         preds = []
         past_key_values = None
         for i in range(max_new_tokens):
-            outputs = nbce_model(
+            outputs = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 return_dict=True,
@@ -50,7 +50,7 @@ class NBCEModelWrapper:
                 past_key_values=past_key_values,
             )
             past_key_values = outputs.past_key_values
-            beta = 0.65
+            beta = 0.75
             logits = outputs.logits[:, -1]
             logits = logits - logits.logsumexp(dim=-1, keepdims=True)
             logits = processors(input_ids, logits)
