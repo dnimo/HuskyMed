@@ -1,79 +1,91 @@
+#! -*- coding: utf-8 -*-
+import sys
+
+sys.path.append("/home/jovyan/mi-drive/medinfo_lab/Research_Projects/zhang/huskyToolkit_0.2")
+
 import torch
+import json
+import numpy as np
+from utils import load_tokenizer, distribution_sampled
+from transformers import AutoModelForCausalLM
+from peft import PeftModel
+from datasets import load_dataset
+from utils import load_config
+from datetime import datetime
+import logging
+from Wrapper import nbce_wrapper_ii
+from tqdm import tqdm
 
-# 启用自动混合精度和关闭梯度计算
-with torch.no_grad(), torch.cuda.amp.autocast(enabled=True):
-    batch_size = input_ids.size(0)
-    chunk_size = 32  # 可以调整这个值来优化显存使用
-    max_new_tokens = 50
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+config = load_config()
 
-    for i in range(max_new_tokens):
-        # 按照 chunk_size 分片处理
-        next_tokens_list = []
+Calm_Window_Size = 2048
 
-        for start_idx in range(0, batch_size, chunk_size):
-            end_idx = min(start_idx + chunk_size, batch_size)
+logging.basicConfig(
+    filename=config['log_path']['log_directory'],
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
-            # 当前子批次
-            input_ids_chunk = input_ids[start_idx:end_idx]
-            attention_mask_chunk = attention_mask[start_idx:end_idx]
+def build_context(examples):
+    ref_sample = []
+    smr_sample = []
+    for example in examples:
+        prompt = config['prompt_templates']['summarization']
+        sample = []
+        smr_section = example['smrs']['SECTION']
+        smr_type = example['smrs']['EMR_TYPE']
+        smr_data_type_list = list(set([items['EMR_DATA_TYPE'] for items in example['smrs']['smr']]))
+        smr = list(set([(smr['EMR_DATA_TYPE'], smr['EMR_TEXT']) for smr in example['smrs']['smr']]))
+        for smr_data_type in smr_data_type_list:
+            for record in example['records']:
+                for line in record['emr']:
+                    source = prompt.format_map({
+                        "smr_section": smr_section,
+                        "ref_section": record['section'],
+                        "ref_hcp_class": record['hcp_class'],
+                        "ref_type": line['type'],
+                        "smr_type": smr_type,
+                        "smr_data_type": smr_data_type,
+                        "ref_text": line['text']
+                    })
+                    sample.append(source)
+        sample = list(set(sample))
+        ref_sample.extend(sample)
+        smr_sample.append(smr)
+    return {"ref": ref_sample, "smr": smr_sample}
 
-            # 前向传播
-            outputs = self.model(
-                input_ids=input_ids_chunk,
-                attention_mask=attention_mask_chunk,
-                return_dict=True,
-                use_cache=True,
-                past_key_values=past_key_values,
-            )
+if __name__ == "__main__":
 
-            # 更新 past_key_values
-            if past_key_values is None:
-                past_key_values = outputs.past_key_values
-            else:
-                past_key_values = tuple(
-                    torch.cat([pkv_old, pkv_new], dim=1) for pkv_old, pkv_new in
-                    zip(past_key_values, outputs.past_key_values)
-                )
+    model = AutoModelForCausalLM.from_pretrained(config['model_path']['pretrained_model'], device_map='auto',
+                                                 torch_dtype=torch.bfloat16)
+    model = PeftModel.from_pretrained(model, config['model_path']['peft_model'])
+    tokenizer = load_tokenizer(config['model_path']['pretrained_model'])
 
-            # 提取 logits
-            beta = 0.75
-            logits = outputs.logits[:, -1]
+    data = load_dataset('json', data_files=config['data_paths']['test'], split="train")
+    chunk_data = build_context(data)
 
-            # 正则化 logits
-            logits = logits - logits.logsumexp(dim=-1, keepdim=True)
-            logits = processors(input_ids_chunk, logits)
+    nbce = nbce_wrapper_ii.NBCEModelWrapper(model, tokenizer, device, Calm_Window_Size)
 
-            # 计算熵
-            entropy = -(logits.exp() * logits.clip(-100, 0)).sum(dim=-1)
+    result = {}
+    output_path = config['data_paths']['output']
 
-            # 找到熵最小的 token
-            k = entropy[1:].argmin() + 1
-            logits_max = logits[k]
-            logits_uncond = logits[0]
 
-            # 合并 logits
-            logits_merged = (1 + beta) * logits_max - beta * logits_uncond
-            logits = torch.where(logits_uncond > -100, logits_merged, logits_max)
-
-            # 采样下一个 token
-            probas = torch.nn.functional.softmax(logits[None], dim=-1)
-            probas = torch.where(torch.isnan(probas), torch.zeros_like(probas), probas)
-            next_tokens_chunk = torch.multinomial(probas, num_samples=1).squeeze(1)
-            next_tokens_list.append(next_tokens_chunk)
-
-        # 将所有子批次结果拼接
-        next_tokens = torch.cat(next_tokens_list, dim=0)
-
-        # 检查是否生成结束标记
-        if next_tokens[0] == self.tokenizer.eos_token_id:
-            break
-
-        # 解码生成的 token
-        ret = self.tokenizer.batch_decode(next_tokens)
-        preds.append(ret[0])
-
-        # 更新 input_ids 和 attention_mask，减少显存重复分配
-        input_ids = next_tokens.unsqueeze(-1).expand(batch_size, 1)
-        attention_mask = torch.cat(
-            [attention_mask, torch.ones(batch_size, 1, dtype=torch.long, device=attention_mask.device)], dim=-1
-        )
+    try:
+        for rs in np.arange(0.15, 0.65, 0.05):
+            rs = round(rs, 2)
+            filename = config['data_paths']['output'] + timestamp + '_' + str(rs) + '_.json'
+            for index, data in tqdm(enumerate(zip(chunk_data['ref'], chunk_data['smr'])), desc=f"Generating as per sampling rate {rs}"):
+                cache, length_distribution = distribution_sampled(data, tokenizer, sampling_rate=rs)
+                if len(cache) > 1:
+                    out = nbce.nbce_generate(contexts=cache, task_text=config['prompt_templates']['summarization'], max_new_tokens=800)
+                    result[index] = {"ref": cache, "human":data[1], "nbce": out}
+            with open(filename, 'w', 'w', encoding='utf-8') as f:
+                    json.dump(result, f)
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        with open(output_path + f'result_{timestamp}_error.json', 'w', encoding='utf-8') as f:
+            json.dump(result, f)
+            print(f"Error occurred & the result is stored at {output_path}result_{timestamp}_error.json")
