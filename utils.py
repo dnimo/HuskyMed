@@ -99,7 +99,8 @@ def distribution_sampled(sentences: list, tokenizer: PreTrainedTokenizerBase, sa
 
 
 def select_and_merge_sentences(sentences, min_length_for_merge):
-    sentences = remove_duplicates(select__sentences)
+    # fix variable name typo and ensure dedup
+    sentences = remove_duplicates(sentences)
     max_total_length = 40 * min_length_for_merge
     selected_sentences = []
     total_length = 0
