@@ -1,4 +1,91 @@
-# Byte-compiled / optimized / DLL files
+###############################
+# Python 基础
+__pycache__/
+*.py[cod]
+*.so
+*.dist-info/
+*.egg-info/
+*.egg
+*.pyo
+*.pyd
+
+# 虚拟环境 / 包管理
+.venv/
+venv/
+env/
+.env/
+.python-version
+Pipfile.lock
+poetry.lock
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+profile_default/
+*.nbconvert.ipynb
+
+# VSCode / 编辑器
+.vscode/
+*.swp
+*.swo
+
+# Cache / 临时文件
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.cache/
+*.log
+*.tmp
+*.bak
+
+# 构建 / 分发产物
+build/
+dist/
+site/
+htmlcov/
+coverage.xml
+.coverage*
+*.manifest
+*.spec
+
+# 数据 / 模型权重 (可根据需要放开)
+data/
+datasets/
+outputs/
+checkpoints/
+wandb/
+*.ckpt
+*.pt
+*.bin
+*.safetensors
+
+# HuggingFace / Transformers 缓存
+~/.cache/huggingface/
+hf_cache/
+
+# 图片 / 生成文件
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# 安全 / 凭证
+.env.local
+.secret*
+secrets/
+
+# MacOS / 系统
+.DS_Store
+*.icloud
+
+# 排除但保留必要的说明文件
+!data/.gitkeep
+!datasets/.gitkeep
+!outputs/.gitkeep
+!checkpoints/.gitkeep
+
+###############################
+# 如果需要保留某些模型文件，请在上方注释或移除对应模式。# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
